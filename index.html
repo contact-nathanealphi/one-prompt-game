@@ -84,7 +84,7 @@
       <div id="buildBarOuter"><div id="buildBar"></div></div>
       <div id="buildPct">0% — scaffolding</div>
     </div>
-    <div class="hud-box" style="text-align:right"><div id="lives">♥♥♥</div><div id="levelLbl">LEVEL 1</div></div>
+    <div class="hud-box" style="text-align:right"><div id="lives">♥♥♥</div><div id="levelLbl">LEVEL 1</div><div id="dashLbl" style="font-size:11px;letter-spacing:.2em;color:#67e8f9;margin-top:2px">DASH READY</div></div>
   </div>
   <div id="powerups"></div>
   <button id="muteBtn" title="Mute (M)">♪</button>
@@ -105,6 +105,7 @@
     <span><span class="key">MOUSE / TOUCH</span> move</span>
     <span><span class="key">W A S D / ← ↑ ↓ →</span> move</span>
     <span><span class="key">AUTO-FIRE</span> always on</span>
+    <span><span class="key">SPACE</span> dash</span>
     <span><span class="key">P</span> pause</span>
     <span><span class="key">M</span> mute</span>
   </div>
@@ -212,8 +213,10 @@ const Game = {
   keys: {}, pointer: { x: 0, y: 0, active: false },
   items: [], bolts: [], parts: [], floats: [], stars: [], trail: [], rings: [],
   flash: 0, comboT: 0, shownLevel: 1, nearMiss: 0, nebula: [],
+  killStreak: 0, killStreakT: 0, dashCd: 0, rainT: 25, menuT: 0,
 };
 const DEMO = new URLSearchParams(location.search).has('demo');
+const DEMO_RATE = parseFloat(new URLSearchParams(location.search).get('rate') || '1') || 1;
 
 /* ---------- canvas sizing ---------- */
 function resize() {
@@ -237,6 +240,7 @@ window.addEventListener('resize', resize); resize();
 
 /* ---------- helpers: particles, floats, banner ---------- */
 function burst(x, y, color, n, speed) {
+  if (Game.parts.length > 400) return; // perf cap
   if (Game.build < 25 && !Game.endless) n = Math.max(2, (n / 3) | 0); // particles unlock at 25%
   for (let i = 0; i < n; i++) {
     const a = Math.random() * TAU, sp = rand(.4, 1) * (speed || 260);
@@ -264,6 +268,8 @@ function updateHUD() {
   $('combo').style.color = Game.combo >= 8 ? '#f472b6' : '#fbbf24';
   $('lives').textContent = '♥'.repeat(Math.max(0, Game.lives)) + '♡'.repeat(Math.max(0, 3 - Game.lives));
   $('levelLbl').textContent = 'LEVEL ' + Game.level + (Game.endless ? ' · ENDLESS' : '');
+  $('dashLbl').textContent = Game.dashCd > 0 ? 'DASH ' + Game.dashCd.toFixed(1) + 's' : 'DASH READY';
+  $('dashLbl').style.color = Game.dashCd > 0 ? '#54678a' : '#67e8f9';
   const stage = [...BUILD_STAGES].reverse().find(s => Game.build >= s.at);
   $('buildBar').style.width = Game.build + '%';
   $('buildPct').textContent = Math.floor(Game.build) + '% — ' + (stage ? stage.label : 'scaffolding');
@@ -363,6 +369,7 @@ function startGame(demo) {
   Game.slowmo = 0; Game.magnet = 0; Game.shield = 0; Game.endless = false; Game.shake = 0;
   Game.items = []; Game.bolts = []; Game.parts = []; Game.floats = [];
   Game.trail = []; Game.rings = []; Game.flash = 0; Game.comboT = 0; Game.shownLevel = 1; Game.nearMiss = 0;
+  Game.killStreak = 0; Game.killStreakT = 0; Game.dashCd = 0; Game.rainT = 25;
   Game.player.x = Game.player.tx = Game.W / 2; Game.player.y = Game.player.ty = Game.H * .78; Game.player.inv = 0;
   $('startScreen').classList.add('hidden'); $('overScreen').classList.add('hidden'); $('hud').classList.remove('hidden');
   banner('ONE PROMPT', 'collect shards · dodge bugs · ship it');
@@ -375,9 +382,17 @@ function togglePause() {
 function toggleMute() { AudioSys.muted = !AudioSys.muted; $('muteBtn').textContent = AudioSys.muted ? '✕' : '♪'; $('muteBtn').style.opacity = AudioSys.muted ? .55 : 1; }
 
 /* ---------- input ---------- */
+function dash() {
+  if (Game.phase !== 'playing' || Game.dashCd > 0) return;
+  const p = Game.player;
+  let dx = (Game.pointer.active ? Game.pointer.x : p.tx) - p.x, dy = (Game.pointer.active ? Game.pointer.y : p.ty) - p.y;
+  const d = Math.hypot(dx, dy) || 1; dx /= d; dy /= d;
+  p.tx = clamp(p.x + dx * 150, 26, Game.W - 26); p.ty = clamp(p.y + dy * 150, Game.H * .3, Game.H - 30);
+  Game.dashCd = 2.5; burst(p.x, p.y, '#22d3ee', 12, 260); AudioSys.whoosh();
+}
 window.addEventListener('keydown', e => {
   Game.keys[e.key.toLowerCase()] = true;
-  if (e.key === ' ') e.preventDefault();
+  if (e.key === ' ') { e.preventDefault(); if (Game.phase === 'playing') dash(); }
   if ((e.key === 'p' || e.key === 'P') && (Game.phase === 'playing' || Game.phase === 'paused')) togglePause();
   if (e.key === 'm' || e.key === 'M') toggleMute();
   if ((e.key === 'Enter' || e.key === ' ') && Game.phase === 'menu') startGame(false);
@@ -399,6 +414,18 @@ if (DEMO) setTimeout(() => startGame(true), 2500); // demo: show the title scree
 /* ---------- update ---------- */
 function update(dt) {
   Game.time += dt;
+  // menu / game-over ambience: drifting stars + decorative falling shards
+  if (Game.phase === 'menu' || Game.phase === 'over') {
+    for (const s of Game.stars) { s.y += s.z * 14 * dt; if (s.y > Game.H) { s.y = -2; s.x = Math.random() * Game.W; } }
+    Game.menuT -= dt;
+    if (Game.menuT <= 0) {
+      Game.menuT = .9;
+      Game.items.push({ kind: 'shard', x: rand(30, Game.W - 30), y: -30, vy: 70, vx: 0, r: 15, rot: rand(0, TAU), vr: .8, wob: 0, hp: 1, seed: 0 });
+      if (Game.items.length > 14) Game.items.splice(0, Game.items.length - 14);
+    }
+    for (let i = Game.items.length - 1; i >= 0; i--) { const it = Game.items[i]; it.y += it.vy * dt; it.rot += it.vr * dt; if (it.y > Game.H + 40) Game.items.splice(i, 1); }
+    return;
+  }
   if (Game.phase !== 'playing' && Game.phase !== 'victory') return;
   if (Game.phase === 'playing') Game.elapsed += dt;
   const p = Game.player;
@@ -409,6 +436,15 @@ function update(dt) {
   if (Game.shield > 0) Game.shield -= dt;
   if (Game.slowmo > 0) Game.slowmo -= dt;
   if (Game.flash > 0) Game.flash = Math.max(0, Game.flash - dt * 1.8);
+  if (Game.dashCd > 0) { Game.dashCd -= dt; $('dashLbl').textContent = Game.dashCd > 0 ? 'DASH ' + Math.max(0, Game.dashCd).toFixed(1) + 's' : 'DASH READY'; $('dashLbl').style.color = Game.dashCd > 0 ? '#54678a' : '#67e8f9'; }
+  if (Game.killStreakT > 0) Game.killStreakT -= dt;
+  // shard rain every 25s
+  Game.rainT -= dt;
+  if (Game.rainT <= 0) {
+    Game.rainT = 25;
+    for (let i = 0; i < 5; i++) Game.items.push({ kind: 'shard', x: 60 + i * (Game.W - 120) / 4 + rand(-20, 20), y: -30 - i * 26, vy: 110, vx: 0, r: 15, rot: 0, vr: 1, wob: rand(0, TAU), hp: 1, seed: 0 });
+    floatText(Game.W / 2, Game.H * .3, 'SHARD RAIN!', '#67e8f9', 22);
+  }
   if (Game.comboT > 0) { Game.comboT -= dt; if (Game.comboT <= 0 && Game.combo > 0) { Game.combo = 0; floatText(p.x, p.y - 46, 'COMBO LOST', '#7d93ad', 15); updateHUD(); } }
   Game.level = Math.min(9, 1 + Math.floor(Game.elapsed / 20) + Math.floor(Game.build / 34));
   if (Game.level > Game.shownLevel) { Game.shownLevel = Game.level; floatText(Game.W / 2, Game.H * .28, 'LEVEL ' + Game.level + ' — FASTER!', '#86efac', 22); }
@@ -419,12 +455,15 @@ function update(dt) {
   if (k['arrowup'] || k['w']) p.ty -= sp;
   if (k['arrowdown'] || k['s']) p.ty += sp;
   p.tx = clamp(p.tx, 26, Game.W - 26); p.ty = clamp(p.ty, Game.H * .3, Game.H - 30);
-  // demo autopilot: chase nearest shard, dodge nearest bug
+  // demo autopilot: chase nearest shard, dodge nearest bug, dash when far
   if (Game.demo) {
-    const shards = Game.items.filter(i => i.kind === 'shard');
-    const bugs = Game.items.filter(i => i.kind === 'bug' && i.y < p.y && i.y > p.y - 320);
+    const shards = Game.items.filter(i => i.kind === 'shard' || i.kind === 'gold');
+    const bugs = Game.items.filter(i => (i.kind === 'bug' || i.kind === 'zig') && i.y < p.y && i.y > p.y - 320);
     if (bugs.length && Math.abs(bugs[0].x - p.x) < 70) p.tx += (bugs[0].x < p.x ? 1 : -1) * 380 * dt;
-    else if (shards.length) { p.tx += clamp(shards[0].x - p.x, -1, 1) * 420 * dt; p.ty += clamp(shards[0].y - p.y + 40, -1, 1) * 200 * dt; }
+    else if (shards.length) {
+      p.tx += clamp(shards[0].x - p.x, -1, 1) * 420 * dt; p.ty += clamp(shards[0].y - p.y + 40, -1, 1) * 200 * dt;
+      if (Math.hypot(shards[0].x - p.x, shards[0].y - p.y) > 320) dash();
+    }
     else p.tx += clamp(Game.W / 2 - p.x, -1, 1) * 200 * dt;
     p.tx = clamp(p.tx, 26, Game.W - 26); p.ty = clamp(p.ty, Game.H * .3, Game.H - 30);
   }
@@ -499,7 +538,13 @@ function update(dt) {
       if (Math.hypot(it.x - b.x, it.y - b.y) < it.r + 6) {
         Game.hits++; it.hp--;
         burst(b.x, b.y, '#fbbf24', 6, 180);
-        if (it.hp <= 0) { Game.kills++; Game.score += 25; floatText(it.x, it.y, '+25', '#fbbf24', 15); burst(it.x, it.y, '#fb7185', 16, 280); ring(it.x, it.y, '#fb7185', 70); AudioSys.zap(); Game.items.splice(j, 1); updateHUD(); }
+        if (it.hp <= 0) {
+          Game.kills++; Game.score += 25;
+          Game.killStreak = (Game.killStreakT > 0) ? Game.killStreak + 1 : 1; Game.killStreakT = 2;
+          if (Game.killStreak >= 3) { Game.score += 50; floatText(it.x, it.y - 22, 'RAMPAGE! +50', '#f472b6', 20); Game.killStreak = 0; }
+          else floatText(it.x, it.y, '+25', '#fbbf24', 15);
+          burst(it.x, it.y, '#fb7185', 16, 280); ring(it.x, it.y, '#fb7185', 70); AudioSys.zap(); Game.items.splice(j, 1); updateHUD();
+        }
         dead = true; break;
       }
     }
@@ -679,7 +724,7 @@ function draw() {
 let last = performance.now();
 function loop(now) {
   const dt = Math.min((now - last) / 1000, .05); last = now;
-  update(dt); draw();
+  update(dt * (Game.demo ? DEMO_RATE : 1)); draw();
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
