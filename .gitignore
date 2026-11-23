@@ -1,0 +1,7 @@
+node_modules/
+shots/
+package.json
+package-lock.json
+test-game.mjs
+test-demo.mjs
+record-video.mjs

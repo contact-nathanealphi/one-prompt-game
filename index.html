@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>ONE PROMPT — the agent builds a game</title>
+<meta name="description" content="One prompt. One agent. One game. Collect the prompt shards, dodge the bugs, and ship it before the deadline. Built by an AI agent from a single prompt for make.fun.">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { width:100%; height:100%; overflow:hidden; background:#050510;
+    font-family:'Segoe UI', system-ui, -apple-system, sans-serif; color:#eaf6ff;
+    -webkit-user-select:none; user-select:none; touch-action:none; }
+  #game { position:fixed; inset:0; display:block; cursor:crosshair; }
+  .overlay { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center;
+    justify-content:center; text-align:center; z-index:10; padding:20px;
+    background:radial-gradient(ellipse at 50% 40%, rgba(20,10,60,.55), rgba(3,3,12,.88)); }
+  .hidden { display:none !important; }
+  h1.title { font-size:clamp(44px, 9vw, 96px); font-weight:900; letter-spacing:.06em; line-height:.95;
+    background:linear-gradient(90deg,#22d3ee,#a78bfa,#f472b6,#22d3ee); background-size:300% 100%;
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+    animation:shine 5s linear infinite; text-shadow:0 0 42px rgba(139,92,246,.35); }
+  @keyframes shine { to { background-position:300% 0; } }
+  .subtitle { margin-top:10px; font-size:clamp(14px,2.4vw,20px); color:#9fd8ff; letter-spacing:.14em; text-transform:uppercase; }
+  .story { max-width:560px; margin:22px auto 0; font-size:clamp(14px,2.2vw,17px); line-height:1.65; color:#c9d8ea; }
+  .story b { color:#67e8f9; } .story i { color:#f9a8d4; font-style:normal; }
+  .btn { margin-top:26px; padding:16px 46px; font-size:20px; font-weight:800; letter-spacing:.12em;
+    color:#04121f; background:linear-gradient(90deg,#22d3ee,#34d399); border:none; border-radius:999px;
+    cursor:pointer; box-shadow:0 0 34px rgba(34,211,238,.55), 0 6px 0 rgba(0,0,0,.35);
+    transition:transform .12s ease, box-shadow .12s ease; }
+  .btn:hover { transform:translateY(-2px) scale(1.03); box-shadow:0 0 48px rgba(34,211,238,.8), 0 8px 0 rgba(0,0,0,.35); }
+  .btn:active { transform:translateY(2px); }
+  .btn.ghost { background:transparent; color:#9fd8ff; border:2px solid #2b6a86; box-shadow:none; padding:11px 28px; font-size:15px; }
+  .controls { margin-top:26px; display:flex; gap:10px; flex-wrap:wrap; justify-content:center; }
+  .key { display:inline-block; padding:5px 11px; border-radius:8px; background:#101a33; border:1px solid #2b3f66;
+    border-bottom-width:3px; font-weight:700; font-size:13px; color:#bfe6ff; }
+  .hint { margin-top:8px; font-size:13px; color:#7d93ad; }
+  .best { margin-top:16px; font-size:15px; color:#fbbf24; letter-spacing:.08em; }
+  .stats { display:flex; gap:26px; flex-wrap:wrap; justify-content:center; margin-top:20px; }
+  .stat { min-width:110px; }
+  .stat .num { font-size:34px; font-weight:900; color:#67e8f9; }
+  .stat .lbl { font-size:11px; letter-spacing:.18em; color:#7d93ad; text-transform:uppercase; margin-top:2px; }
+  #hud { position:fixed; inset:0; pointer-events:none; z-index:5; }
+  #hud .top { position:absolute; top:0; left:0; right:0; display:flex; justify-content:space-between;
+    align-items:flex-start; padding:14px 18px; }
+  .hud-box { background:rgba(5,10,30,.55); border:1px solid rgba(103,232,249,.25); border-radius:14px; padding:8px 14px; backdrop-filter:blur(3px); }
+  #score { font-size:30px; font-weight:900; line-height:1; color:#fff; text-shadow:0 0 18px rgba(34,211,238,.7); }
+  #scoreLbl { font-size:10px; letter-spacing:.22em; color:#7dd3fc; }
+  #combo { font-size:15px; font-weight:800; color:#fbbf24; margin-top:3px; min-height:19px; }
+  #buildWrap { flex:1; max-width:520px; margin:0 16px; text-align:center; }
+  #buildLbl { font-size:11px; letter-spacing:.22em; color:#c4b5fd; margin-bottom:5px; }
+  #buildBarOuter { height:16px; border-radius:999px; background:rgba(255,255,255,.08);
+    border:1px solid rgba(167,139,250,.5); overflow:hidden; }
+  #buildBar { height:100%; width:0%; border-radius:999px;
+    background:linear-gradient(90deg,#22d3ee,#a78bfa,#f472b6); transition:width .25s ease;
+    box-shadow:0 0 16px rgba(167,139,250,.8); }
+  #buildPct { font-size:12px; color:#e9d5ff; margin-top:4px; font-weight:700; }
+  #lives { font-size:22px; letter-spacing:2px; color:#fb7185; text-shadow:0 0 14px rgba(251,113,133,.8); min-height:26px; }
+  #levelLbl { font-size:11px; letter-spacing:.2em; color:#86efac; margin-top:4px; text-align:right; }
+  #powerups { position:absolute; left:18px; bottom:16px; display:flex; gap:8px; }
+  .pu { padding:6px 12px; border-radius:999px; font-size:12px; font-weight:800; letter-spacing:.06em;
+    background:rgba(5,10,30,.6); border:1px solid rgba(52,211,153,.6); color:#6ee7b7; }
+  #muteBtn, #pauseBtn { pointer-events:auto; position:absolute; top:86px; right:18px; width:42px; height:42px;
+    border-radius:12px; border:1px solid rgba(103,232,249,.35); background:rgba(5,10,30,.6);
+    color:#bfe6ff; font-size:19px; cursor:pointer; }
+  #pauseBtn { top:136px; }
+  #banner { position:fixed; left:50%; top:22%; transform:translate(-50%,-50%) scale(.8); z-index:8;
+    font-size:clamp(22px,4.5vw,42px); font-weight:900; letter-spacing:.08em; text-align:center;
+    color:#fff; text-shadow:0 0 30px rgba(167,139,250,.9), 0 0 60px rgba(34,211,238,.6);
+    opacity:0; pointer-events:none; transition:opacity .25s, transform .25s; white-space:nowrap; }
+  #banner.show { opacity:1; transform:translate(-50%,-50%) scale(1); }
+  #banner small { display:block; font-size:clamp(12px,2vw,16px); letter-spacing:.3em; color:#fbbf24; margin-top:6px; }
+  .foot { position:fixed; bottom:10px; width:100%; text-align:center; font-size:11px; color:#54678a; z-index:4; letter-spacing:.12em; }
+  @media (max-width:640px){ #score{font-size:22px;} #buildWrap{margin:0 8px;} #lives{font-size:17px;} .hud-box{padding:6px 9px;} }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="hud" class="hidden">
+  <div class="top">
+    <div class="hud-box"><div id="scoreLbl">SCORE</div><div id="score">0</div><div id="combo"></div></div>
+    <div id="buildWrap">
+      <div id="buildLbl">▸ BUILDING THE GAME…</div>
+      <div id="buildBarOuter"><div id="buildBar"></div></div>
+      <div id="buildPct">0% — scaffolding</div>
+    </div>
+    <div class="hud-box" style="text-align:right"><div id="lives">♥♥♥</div><div id="levelLbl">LEVEL 1</div></div>
+  </div>
+  <div id="powerups"></div>
+  <button id="muteBtn" title="Mute (M)">♪</button>
+  <button id="pauseBtn" title="Pause (P)">⏸</button>
+</div>
+
+<div id="banner"></div>
+
+<div id="startScreen" class="overlay">
+  <h1 class="title">ONE PROMPT</h1>
+  <div class="subtitle">the agent builds a game</div>
+  <p class="story">One prompt. One agent. One game.<br>
+  You are the agent. Catch the falling <b>prompt shards</b> to build the game —
+  every 25% unlocks a real feature. Dodge the <i>bugs</i> or blast them before they
+  crash you. Fill the build bar to <b>100%</b> and ship it before the deadline.</p>
+  <button class="btn" id="playBtn">▶&nbsp; BUILD THE GAME</button>
+  <div class="controls">
+    <span><span class="key">MOUSE / TOUCH</span> move</span>
+    <span><span class="key">W A S D / ← ↑ ↓ →</span> move</span>
+    <span><span class="key">AUTO-FIRE</span> always on</span>
+    <span><span class="key">P</span> pause</span>
+    <span><span class="key">M</span> mute</span>
+  </div>
+  <div class="best" id="bestLine"></div>
+  <button class="btn ghost" id="demoBtn">watch the autopilot demo</button>
+  <div class="hint">Built by an AI agent from a single prompt · for make.fun</div>
+</div>
+
+<div id="overScreen" class="overlay hidden">
+  <h1 class="title" id="overTitle" style="font-size:clamp(34px,7vw,64px)">GAME OVER</h1>
+  <div class="subtitle" id="overSub">the build crashed</div>
+  <div class="stats">
+    <div class="stat"><div class="num" id="finalScore">0</div><div class="lbl">Score</div></div>
+    <div class="stat"><div class="num" id="finalShards">0</div><div class="lbl">Shards</div></div>
+    <div class="stat"><div class="num" id="finalKills">0</div><div class="lbl">Bugs zapped</div></div>
+    <div class="stat"><div class="num" id="finalTime">0s</div><div class="lbl">Build time</div></div>
+    <div class="stat"><div class="num" id="finalBest">0</div><div class="lbl">Best</div></div>
+  </div>
+  <button class="btn" id="againBtn">↻&nbsp; SHIP IT AGAIN</button>
+  <div class="hint">Tip: shards build the combo — a ×8 combo turns one shard into 80 points.</div>
+</div>
+
+<div class="foot">ONE PROMPT · AN AI AGENT BUILT THIS GAME FROM A SINGLE PROMPT · MAKE.FUN</div>
+
+<script>
+'use strict';
+/* ============================================================
+   ONE PROMPT — the agent builds a game.
+   A single-file arcade game. No assets, no dependencies:
+   everything (art, sound, particles) is generated in code.
+   ============================================================ */
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const $ = id => document.getElementById(id);
+const TAU = Math.PI * 2;
+const rand = (a, b) => a + Math.random() * (b - a);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const pick = arr => arr[(Math.random() * arr.length) | 0];
+
+/* ---------- audio: tiny WebAudio synth, no files ---------- */
+const AudioSys = {
+  ctx: null, muted: false, musicTimer: null, musicOn: false,
+  init() {
+    if (!this.ctx) { try { this.ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
+    if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
+  },
+  tone(freq, dur, type, vol, slideTo) {
+    if (!this.ctx || this.muted) return;
+    const t = this.ctx.currentTime, o = this.ctx.createOscillator(), g = this.ctx.createGain();
+    o.type = type || 'sine'; o.frequency.setValueAtTime(freq, t);
+    if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t + dur);
+    g.gain.setValueAtTime(vol || .12, t); g.gain.exponentialRampToValueAtTime(.0001, t + dur);
+    o.connect(g); g.connect(this.ctx.destination); o.start(t); o.stop(t + dur);
+  },
+  noise(dur, vol) {
+    if (!this.ctx || this.muted) return;
+    const t = this.ctx.currentTime, len = this.ctx.sampleRate * dur;
+    const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    const src = this.ctx.createBufferSource(), g = this.ctx.createGain();
+    src.buffer = buf; g.gain.setValueAtTime(vol || .2, t); g.gain.exponentialRampToValueAtTime(.0001, t + dur);
+    src.connect(g); g.connect(this.ctx.destination); src.start(t);
+  },
+  pickup(combo) { const base = 420 * Math.pow(1.059, Math.min(combo, 16)); this.tone(base, .12, 'sine', .14); this.tone(base * 2, .09, 'triangle', .07); },
+  shoot() { this.tone(880, .07, 'square', .045, 320); },
+  zap() { this.noise(.14, .16); this.tone(180, .14, 'sawtooth', .1, 60); },
+  hurt() { this.tone(220, .3, 'sawtooth', .16, 55); this.noise(.2, .2); },
+  power() { [523, 659, 784].forEach((f, i) => setTimeout(() => this.tone(f, .14, 'triangle', .12), i * 70)); },
+  unlock() { [392, 523, 659, 784, 1046].forEach((f, i) => setTimeout(() => this.tone(f, .22, 'triangle', .13), i * 85)); },
+  victory() { [523, 659, 784, 1046, 784, 1046, 1318].forEach((f, i) => setTimeout(() => this.tone(f, .3, 'triangle', .14), i * 120)); },
+  gameover() { [392, 330, 262, 196].forEach((f, i) => setTimeout(() => this.tone(f, .32, 'sawtooth', .1), i * 150)); },
+  startMusic() {
+    if (this.musicOn || !this.ctx) return; this.musicOn = true;
+    const bass = [110, 110, 130.8, 98], arp = [440, 554, 659, 880, 659, 554];
+    let step = 0;
+    this.musicTimer = setInterval(() => {
+      if (this.muted || Game.phase !== 'playing') return;
+      this.tone(bass[step % 4], .22, 'triangle', .05);
+      this.tone(arp[step % 6], .12, 'sine', .028);
+      step++;
+    }, 170);
+  },
+  stopMusic() { this.musicOn = false; if (this.musicTimer) clearInterval(this.musicTimer); }
+};
+
+/* ---------- game state ---------- */
+const BUILD_STAGES = [
+  { at: 0,  label: 'scaffolding',       feat: null },
+  { at: 25, label: 'core loop',         feat: 'PARTICLE FX' },
+  { at: 50, label: 'juice & sound',     feat: 'SOUND ENGINE' },
+  { at: 75, label: 'polish pass',       feat: 'DOUBLE SHOT' },
+  { at: 100, label: 'ready to ship',    feat: 'GAME BUILT!' },
+];
+const Game = {
+  phase: 'menu', // menu | playing | paused | over | victory
+  W: 0, H: 0, dpr: 1, time: 0, elapsed: 0,
+  score: 0, best: +(localStorage.getItem('one-prompt-best') || 0),
+  lives: 3, combo: 0, bestCombo: 0, build: 0, level: 1,
+  shards: 0, kills: 0, shots: 0, hits: 0,
+  shake: 0, slowmo: 0, magnet: 0, shield: 0,
+  spawnT: 0, fireT: 0, bannerT: 0, demo: false, endless: false,
+  player: { x: 0, y: 0, r: 20, tx: 0, ty: 0, tilt: 0, inv: 0 },
+  keys: {}, pointer: { x: 0, y: 0, active: false },
+  items: [], bolts: [], parts: [], floats: [], stars: [],
+};
+const DEMO = new URLSearchParams(location.search).has('demo');
+
+/* ---------- canvas sizing ---------- */
+function resize() {
+  Game.dpr = Math.min(window.devicePixelRatio || 1, 2);
+  Game.W = window.innerWidth; Game.H = window.innerHeight;
+  canvas.width = Game.W * Game.dpr; canvas.height = Game.H * Game.dpr;
+  canvas.style.width = Game.W + 'px'; canvas.style.height = Game.H + 'px';
+  ctx.setTransform(Game.dpr, 0, 0, Game.dpr, 0, 0);
+  Game.player.x = Game.player.tx = Game.W / 2;
+  Game.player.y = Game.player.ty = Game.H * .78;
+  if (!Game.stars.length) for (let i = 0; i < 90; i++)
+    Game.stars.push({ x: Math.random() * Game.W, y: Math.random() * Game.H, z: rand(.2, 1), s: rand(.6, 2) });
+}
+window.addEventListener('resize', resize); resize();
+
+/* ---------- helpers: particles, floats, banner ---------- */
+function burst(x, y, color, n, speed) {
+  if (Game.build < 25 && !Game.endless) n = Math.max(2, (n / 3) | 0); // particles unlock at 25%
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * TAU, sp = rand(.4, 1) * (speed || 260);
+    Game.parts.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 40, life: rand(.35, .8), max: .8, color, r: rand(1.5, 4) });
+  }
+}
+function confetti() {
+  const colors = ['#22d3ee', '#a78bfa', '#f472b6', '#34d399', '#fbbf24'];
+  for (let i = 0; i < 160; i++)
+    Game.parts.push({ x: rand(0, Game.W), y: rand(-40, -5), vx: rand(-40, 40), vy: rand(60, 220), life: rand(1.2, 2.4), max: 2.4, color: pick(colors), r: rand(2, 5), grav: 60 });
+}
+function floatText(x, y, text, color, size) {
+  Game.floats.push({ x, y, text, color: color || '#fff', size: size || 16, life: .9, max: .9 });
+}
+function banner(main, sub) {
+  const b = $('banner'); b.innerHTML = main + (sub ? '<small>' + sub + '</small>' : '');
+  b.classList.add('show'); Game.bannerT = 1.6;
+}
+function updateHUD() {
+  $('score').textContent = Game.score.toLocaleString('en-US');
+  $('combo').textContent = Game.combo >= 2 ? 'COMBO ×' + Game.combo : '';
+  $('combo').style.color = Game.combo >= 8 ? '#f472b6' : '#fbbf24';
+  $('lives').textContent = '♥'.repeat(Math.max(0, Game.lives)) + '♡'.repeat(Math.max(0, 3 - Game.lives));
+  $('levelLbl').textContent = 'LEVEL ' + Game.level + (Game.endless ? ' · ENDLESS' : '');
+  const stage = [...BUILD_STAGES].reverse().find(s => Game.build >= s.at);
+  $('buildBar').style.width = Game.build + '%';
+  $('buildPct').textContent = Math.floor(Game.build) + '% — ' + (stage ? stage.label : 'scaffolding');
+  $('buildLbl').textContent = Game.endless ? '▸ ENDLESS MODE — SHIPPED ✓ KEEP SCORING' : '▸ BUILDING THE GAME…';
+  const pus = [];
+  if (Game.magnet > 0) pus.push('🧲 MAGNET ' + Math.ceil(Game.magnet) + 's');
+  if (Game.shield > 0) pus.push('🛡 SHIELD');
+  if (Game.slowmo > 0) pus.push('⏱ SLOW-MO ' + Math.ceil(Game.slowmo) + 's');
+  $('powerups').innerHTML = pus.map(p => '<span class="pu">' + p + '</span>').join('');
+}
+
+/* ---------- spawning ---------- */
+function spawnItem() {
+  const t = Game.elapsed, diff = clamp(1 + t / 45, 1, 2.6); // difficulty ramps
+  const roll = Math.random();
+  let kind;
+  if (roll < .66) kind = 'shard';
+  else if (roll < .90) kind = 'bug';
+  else kind = pick(['magnet', 'shield', 'slow']);
+  const x = rand(30, Game.W - 30);
+  const baseSpeed = (90 + t * 2.2) * diff * rand(.85, 1.2) * (kind === 'shard' ? .82 : 1);
+  const item = { kind, x, y: -30, vy: baseSpeed, vx: rand(-14, 14), r: kind === 'bug' ? 19 : 15,
+    rot: rand(0, TAU), vr: rand(-1.5, 1.5), wob: rand(0, TAU), hp: kind === 'bug' ? (Game.level >= 4 ? 2 : 1) : 1, seed: Math.random() * 100 };
+  Game.items.push(item);
+}
+function fireBolt() {
+  const p = Game.player;
+  const bugs = Game.items.filter(i => i.kind === 'bug');
+  if (!bugs.length) return;
+  bugs.sort((a, b) => (a.y - p.y) ** 2 + (a.x - p.x) ** 2 - ((b.y - p.y) ** 2 + (b.x - p.x) ** 2));
+  const target = bugs[0], n = Game.build >= 75 ? 2 : 1;
+  for (let k = 0; k < n; k++) {
+    const off = n === 2 ? (k === 0 ? -9 : 9) : 0;
+    const dx = target.x - (p.x + off), dy = target.y - (p.y - 18), d = Math.hypot(dx, dy) || 1;
+    Game.bolts.push({ x: p.x + off, y: p.y - 18, vx: dx / d * 620, vy: dy / d * 620, life: 1.1 });
+  }
+  Game.shots += n; AudioSys.shoot();
+}
+
+/* ---------- build milestones ---------- */
+function checkMilestones(prev) {
+  for (const s of BUILD_STAGES) {
+    if (prev < s.at && Game.build >= s.at && s.feat) {
+      if (s.at === 100) { victory(); return; }
+      banner('✦ ' + s.feat + ' UNLOCKED', 'build ' + s.at + '% — ' + s.label);
+      AudioSys.unlock();
+      burst(Game.player.x, Game.player.y, '#a78bfa', 26, 300);
+      if (s.at === 50) AudioSys.startMusic();
+    }
+  }
+}
+function victory() {
+  Game.endless = true; Game.phase = 'victory';
+  AudioSys.victory(); confetti();
+  banner('🎉 GAME BUILT!', '100% — you shipped it from one prompt');
+  setTimeout(() => {
+    if (Game.phase === 'victory') { Game.phase = 'playing'; updateHUD(); }
+  }, 2600);
+}
+
+/* ---------- collisions & damage ---------- */
+function damagePlayer() {
+  if (Game.player.inv > 0 || Game.phase !== 'playing') return;
+  if (Game.shield > 0) { Game.shield = 0; Game.player.inv = 1.2; floatText(Game.player.x, Game.player.y - 40, 'SHIELD SAVED YOU', '#6ee7b7', 17); AudioSys.zap(); return; }
+  Game.lives--; Game.combo = 0; Game.shake = 16; Game.player.inv = 1.6;
+  burst(Game.player.x, Game.player.y, '#fb7185', 22, 320);
+  AudioSys.hurt(); updateHUD();
+  if (Game.lives <= 0) gameOver(false);
+}
+function gameOver(won) {
+  Game.phase = 'over'; AudioSys.stopMusic(); AudioSys.gameover();
+  const best = Math.max(Game.best, Game.score);
+  if (Game.score > Game.best) { Game.best = Game.score; localStorage.setItem('one-prompt-best', Game.best); }
+  $('overTitle').textContent = won ? 'SHIPPED! 🚀' : 'GAME OVER';
+  $('overSub').textContent = won ? 'the game is built — 100% from one prompt' : (Game.build >= 90 ? 'so close — the build was ' + Math.floor(Game.build) + '%' : 'the build crashed');
+  $('finalScore').textContent = Game.score.toLocaleString('en-US');
+  $('finalShards').textContent = Game.shards;
+  $('finalKills').textContent = Game.kills;
+  $('finalTime').textContent = Math.round(Game.elapsed) + 's';
+  $('finalBest').textContent = best.toLocaleString('en-US');
+  $('hud').classList.add('hidden'); $('overScreen').classList.remove('hidden');
+}
+
+/* ---------- flow ---------- */
+function startGame(demo) {
+  AudioSys.init();
+  Game.phase = 'playing'; Game.demo = !!demo;
+  Game.score = 0; Game.lives = 3; Game.combo = 0; Game.bestCombo = 0; Game.build = 0; Game.level = 1;
+  Game.shards = 0; Game.kills = 0; Game.shots = 0; Game.hits = 0; Game.elapsed = 0;
+  Game.slowmo = 0; Game.magnet = 0; Game.shield = 0; Game.endless = false; Game.shake = 0;
+  Game.items = []; Game.bolts = []; Game.parts = []; Game.floats = [];
+  Game.player.x = Game.player.tx = Game.W / 2; Game.player.y = Game.player.ty = Game.H * .78; Game.player.inv = 0;
+  $('startScreen').classList.add('hidden'); $('overScreen').classList.add('hidden'); $('hud').classList.remove('hidden');
+  banner('ONE PROMPT', 'collect shards · dodge bugs · ship it');
+  updateHUD();
+}
+function togglePause() {
+  if (Game.phase === 'playing') { Game.phase = 'paused'; banner('⏸ PAUSED', 'press P to resume'); }
+  else if (Game.phase === 'paused') { Game.phase = 'playing'; $('banner').classList.remove('show'); }
+}
+function toggleMute() { AudioSys.muted = !AudioSys.muted; $('muteBtn').textContent = AudioSys.muted ? '✕' : '♪'; $('muteBtn').style.opacity = AudioSys.muted ? .55 : 1; }
+
+/* ---------- input ---------- */
+window.addEventListener('keydown', e => {
+  Game.keys[e.key.toLowerCase()] = true;
+  if (e.key === ' ') e.preventDefault();
+  if ((e.key === 'p' || e.key === 'P') && (Game.phase === 'playing' || Game.phase === 'paused')) togglePause();
+  if (e.key === 'm' || e.key === 'M') toggleMute();
+  if ((e.key === 'Enter' || e.key === ' ') && Game.phase === 'menu') startGame(false);
+  if ((e.key === 'Enter' || e.key === ' ') && Game.phase === 'over') startGame(false);
+});
+window.addEventListener('keyup', e => { Game.keys[e.key.toLowerCase()] = false; });
+function setPointer(x, y) { Game.pointer.x = x; Game.pointer.y = y; Game.pointer.active = true; Game.player.tx = x; Game.player.ty = y; }
+canvas.addEventListener('pointerdown', e => setPointer(e.clientX, e.clientY));
+canvas.addEventListener('pointermove', e => { if (e.buttons) setPointer(e.clientX, e.clientY); });
+$('playBtn').addEventListener('click', () => startGame(false));
+$('againBtn').addEventListener('click', () => startGame(false));
+$('demoBtn').addEventListener('click', () => startGame(true));
+$('muteBtn').addEventListener('click', toggleMute);
+$('pauseBtn').addEventListener('click', togglePause);
+document.addEventListener('visibilitychange', () => { if (document.hidden && Game.phase === 'playing') togglePause(); });
+$('bestLine').textContent = Game.best > 0 ? '★ BEST SCORE: ' + Game.best.toLocaleString('en-US') : '';
+if (DEMO) setTimeout(() => startGame(true), 2500); // demo: show the title screen first, then autoplay
+
+/* ---------- update ---------- */
+function update(dt) {
+  Game.time += dt;
+  if (Game.phase !== 'playing' && Game.phase !== 'victory') return;
+  if (Game.phase === 'playing') Game.elapsed += dt;
+  const p = Game.player;
+  // timers
+  if (Game.bannerT > 0) { Game.bannerT -= dt; if (Game.bannerT <= 0) $('banner').classList.remove('show'); }
+  if (p.inv > 0) p.inv -= dt;
+  if (Game.magnet > 0) Game.magnet -= dt;
+  if (Game.shield > 0) Game.shield -= dt;
+  if (Game.slowmo > 0) Game.slowmo -= dt;
+  Game.level = Math.min(9, 1 + Math.floor(Game.elapsed / 20) + Math.floor(Game.build / 34));
+  // movement: keyboard
+  const sp = 460 * dt, k = Game.keys;
+  if (k['arrowleft'] || k['a']) p.tx -= sp;
+  if (k['arrowright'] || k['d']) p.tx += sp;
+  if (k['arrowup'] || k['w']) p.ty -= sp;
+  if (k['arrowdown'] || k['s']) p.ty += sp;
+  p.tx = clamp(p.tx, 26, Game.W - 26); p.ty = clamp(p.ty, Game.H * .3, Game.H - 30);
+  // demo autopilot: chase nearest shard, dodge nearest bug
+  if (Game.demo) {
+    const shards = Game.items.filter(i => i.kind === 'shard');
+    const bugs = Game.items.filter(i => i.kind === 'bug' && i.y < p.y && i.y > p.y - 320);
+    if (bugs.length && Math.abs(bugs[0].x - p.x) < 70) p.tx += (bugs[0].x < p.x ? 1 : -1) * 380 * dt;
+    else if (shards.length) { p.tx += clamp(shards[0].x - p.x, -1, 1) * 420 * dt; p.ty += clamp(shards[0].y - p.y + 40, -1, 1) * 200 * dt; }
+    else p.tx += clamp(Game.W / 2 - p.x, -1, 1) * 200 * dt;
+    p.tx = clamp(p.tx, 26, Game.W - 26); p.ty = clamp(p.ty, Game.H * .3, Game.H - 30);
+  }
+  // smooth follow + tilt
+  const nx = p.x + (p.tx - p.x) * Math.min(1, dt * 14);
+  p.tilt = clamp((nx - p.x) * .06, -.5, .5); p.x = nx;
+  p.y += (p.ty - p.y) * Math.min(1, dt * 14);
+  // magnet pull
+  const timeScale = Game.slowmo > 0 ? .45 : 1;
+  // spawn
+  Game.spawnT -= dt;
+  const interval = clamp(.75 - Game.elapsed / 260 - Game.level * .03, .28, .75) / (Game.slowmo > 0 ? 1.6 : 1);
+  if (Game.spawnT <= 0) { spawnItem(); if (Game.level >= 3 && Math.random() < .4) spawnItem(); Game.spawnT = interval * rand(.7, 1.3); }
+  // auto-fire
+  Game.fireT -= dt;
+  if (Game.fireT <= 0) { fireBolt(); Game.fireT = .22; }
+  // items
+  for (let i = Game.items.length - 1; i >= 0; i--) {
+    const it = Game.items[i];
+    it.y += it.vy * timeScale * dt; it.x += it.vx * timeScale * dt + Math.sin(Game.time * 2 + it.wob) * 12 * dt;
+    it.rot += it.vr * dt;
+    if (Game.magnet > 0 && it.kind === 'shard') {
+      const dx = p.x - it.x, dy = p.y - it.y, d = Math.hypot(dx, dy) || 1;
+      if (d < 260) { it.x += dx / d * 340 * dt; it.y += dy / d * 340 * dt; }
+    }
+    if (it.y > Game.H + 40 || it.x < -50 || it.x > Game.W + 50) { Game.items.splice(i, 1); continue; }
+    const d = Math.hypot(it.x - p.x, it.y - p.y);
+    if (d < it.r + p.r - 4) {
+      if (it.kind === 'shard') {
+        Game.shards++; Game.combo++; Game.bestCombo = Math.max(Game.bestCombo, Game.combo);
+        const mult = Math.min(Game.combo, 8), gain = 10 * mult;
+        const prev = Game.build;
+        Game.score += gain; Game.build = Math.min(100, Game.build + 5);
+        floatText(it.x, it.y - 14, '+' + gain, '#67e8f9', 15 + Math.min(mult, 6));
+        if (Game.combo >= 3 && Game.combo % 5 === 0) floatText(p.x, p.y - 46, 'COMBO ×' + Game.combo, '#fbbf24', 19);
+        burst(it.x, it.y, '#22d3ee', 8, 200); AudioSys.pickup(Game.combo);
+        Game.items.splice(i, 1); checkMilestones(prev); updateHUD();
+      } else if (it.kind === 'bug') {
+        Game.items.splice(i, 1); damagePlayer();
+      } else {
+        Game.items.splice(i, 1); AudioSys.power();
+        if (it.kind === 'magnet') { Game.magnet = 8; floatText(p.x, p.y - 46, '🧲 MAGNET!', '#6ee7b7', 18); }
+        if (it.kind === 'shield') { Game.shield = 999; floatText(p.x, p.y - 46, '🛡 SHIELD!', '#6ee7b7', 18); }
+        if (it.kind === 'slow') { Game.slowmo = 6; floatText(p.x, p.y - 46, '⏱ SLOW-MO!', '#6ee7b7', 18); }
+        burst(it.x, it.y, '#34d399', 14, 240); updateHUD();
+      }
+    }
+  }
+  // bolts
+  for (let i = Game.bolts.length - 1; i >= 0; i--) {
+    const b = Game.bolts[i];
+    b.x += b.vx * dt; b.y += b.vy * dt; b.life -= dt;
+    let dead = b.life <= 0 || b.y < -20 || b.y > Game.H + 20 || b.x < -20 || b.x > Game.W + 20;
+    if (!dead) for (let j = Game.items.length - 1; j >= 0; j--) {
+      const it = Game.items[j];
+      if (it.kind !== 'bug') continue;
+      if (Math.hypot(it.x - b.x, it.y - b.y) < it.r + 6) {
+        Game.hits++; it.hp--;
+        burst(b.x, b.y, '#fbbf24', 6, 180);
+        if (it.hp <= 0) { Game.kills++; Game.score += 25; floatText(it.x, it.y, '+25', '#fbbf24', 15); burst(it.x, it.y, '#fb7185', 16, 280); AudioSys.zap(); Game.items.splice(j, 1); updateHUD(); }
+        dead = true; break;
+      }
+    }
+    if (dead) Game.bolts.splice(i, 1);
+  }
+  // particles
+  for (let i = Game.parts.length - 1; i >= 0; i--) {
+    const q = Game.parts[i];
+    q.life -= dt; q.x += q.vx * dt; q.y += (q.vy + (q.grav || 0) * dt) * dt * 8 + (q.grav ? 0 : q.vy * dt * .12);
+    q.vy += (q.grav || 0) * dt; q.vx *= (1 - dt * 1.2);
+    if (q.life <= 0 || q.y > Game.H + 20) Game.parts.splice(i, 1);
+  }
+  // floats
+  for (let i = Game.floats.length - 1; i >= 0; i--) {
+    const f = Game.floats[i]; f.life -= dt; f.y -= 42 * dt;
+    if (f.life <= 0) Game.floats.splice(i, 1);
+  }
+  // stars
+  for (const s of Game.stars) { s.y += s.z * 14 * dt; if (s.y > Game.H) { s.y = -2; s.x = Math.random() * Game.W; } }
+  if (Game.shake > 0) Game.shake = Math.max(0, Game.shake - dt * 34);
+}
+
+/* ---------- draw ---------- */
+function drawGrid() {
+  ctx.strokeStyle = 'rgba(56,189,248,.07)'; ctx.lineWidth = 1;
+  const step = 56, off = (Game.time * 22) % step;
+  ctx.beginPath();
+  for (let x = 0; x <= Game.W; x += step) { ctx.moveTo(x, 0); ctx.lineTo(x, Game.H); }
+  for (let y = off; y <= Game.H; y += step) { ctx.moveTo(0, y); ctx.lineTo(Game.W, y); }
+  ctx.stroke();
+  const g = ctx.createRadialGradient(Game.W / 2, Game.H * .32, 40, Game.W / 2, Game.H * .32, Math.max(Game.W, Game.H) * .75);
+  g.addColorStop(0, 'rgba(124,58,237,.20)'); g.addColorStop(.55, 'rgba(8,8,32,.12)'); g.addColorStop(1, 'rgba(3,3,12,0)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, Game.W, Game.H);
+}
+function drawPlayer() {
+  const p = Game.player;
+  ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.tilt);
+  if (p.inv > 0 && Math.floor(Game.time * 14) % 2 === 0) ctx.globalAlpha = .35;
+  // glow + shield ring
+  const glow = ctx.createRadialGradient(0, 0, 4, 0, 0, 46);
+  glow.addColorStop(0, 'rgba(34,211,238,.5)'); glow.addColorStop(1, 'rgba(34,211,238,0)');
+  ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(0, 0, 46, 0, TAU); ctx.fill();
+  if (Game.shield > 0) { ctx.strokeStyle = 'rgba(110,231,183,.85)'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(0, 0, 32, 0, TAU); ctx.stroke(); }
+  // thruster flame
+  const fl = 12 + Math.sin(Game.time * 30) * 5;
+  ctx.fillStyle = '#f97316';
+  ctx.beginPath(); ctx.moveTo(-8, 16); ctx.lineTo(0, 16 + fl); ctx.lineTo(8, 16); ctx.closePath(); ctx.fill();
+  // robot body
+  ctx.fillStyle = '#0e7490'; ctx.strokeStyle = '#67e8f9'; ctx.lineWidth = 2;
+  roundRect(-17, -16, 34, 32, 9); ctx.fill(); ctx.stroke();
+  // visor
+  ctx.fillStyle = '#04121f'; roundRect(-12, -9, 24, 11, 5); ctx.fill();
+  ctx.fillStyle = '#22d3ee'; ctx.beginPath(); ctx.arc(-5, -3.5, 2.6, 0, TAU); ctx.arc(5, -3.5, 2.6, 0, TAU); ctx.fill();
+  // antenna
+  ctx.strokeStyle = '#67e8f9'; ctx.beginPath(); ctx.moveTo(0, -16); ctx.lineTo(0, -24); ctx.stroke();
+  ctx.fillStyle = '#f472b6'; ctx.beginPath(); ctx.arc(0, -26, 3.4, 0, TAU); ctx.fill();
+  // arms
+  ctx.strokeStyle = '#0e7490'; ctx.lineWidth = 5; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(-17, -2); ctx.lineTo(-25, 8); ctx.moveTo(17, -2); ctx.lineTo(25, 8); ctx.stroke();
+  ctx.restore();
+}
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.closePath();
+}
+function drawItem(it) {
+  ctx.save(); ctx.translate(it.x, it.y); ctx.rotate(it.rot);
+  if (it.kind === 'shard') {
+    ctx.shadowColor = '#22d3ee'; ctx.shadowBlur = 16;
+    ctx.fillStyle = '#164e63'; ctx.strokeStyle = '#22d3ee'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(0, -15); ctx.lineTo(13, 0); ctx.lineTo(0, 15); ctx.lineTo(-13, 0); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.shadowBlur = 0; ctx.fillStyle = '#a5f3fc'; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('</>', 0, 1);
+  } else if (it.kind === 'bug') {
+    const blink = Math.floor(Game.time * 6 + it.seed) % 2 === 0;
+    ctx.shadowColor = '#fb7185'; ctx.shadowBlur = 16;
+    ctx.fillStyle = blink ? '#7f1d2e' : '#9f1239'; ctx.strokeStyle = '#fb7185'; ctx.lineWidth = 2;
+    roundRect(-16, -16, 32, 32, 6); ctx.fill(); ctx.stroke();
+    ctx.shadowBlur = 0; ctx.strokeStyle = '#fecdd3'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(-8, -8); ctx.lineTo(8, 8); ctx.moveTo(8, -8); ctx.lineTo(-8, 8); ctx.stroke();
+    if (it.hp >= 2) { ctx.fillStyle = '#fecdd3'; ctx.font = 'bold 10px monospace'; ctx.textAlign = 'center'; ctx.fillText('×2', 0, -22); }
+  } else {
+    const colors = { magnet: '#34d399', shield: '#6ee7b7', slow: '#c4b5fd' };
+    const glyph = { magnet: '🧲', shield: '🛡', slow: '⏱' };
+    ctx.shadowColor = colors[it.kind]; ctx.shadowBlur = 16;
+    ctx.fillStyle = 'rgba(5,20,16,.9)'; ctx.strokeStyle = colors[it.kind]; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(0, 0, 16, 0, TAU); ctx.fill(); ctx.stroke();
+    ctx.shadowBlur = 0; ctx.font = '15px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(glyph[it.kind], 0, 1);
+  }
+  ctx.restore();
+}
+function draw() {
+  ctx.clearRect(0, 0, Game.W, Game.H);
+  ctx.save();
+  if (Game.shake > 0) ctx.translate(rand(-Game.shake, Game.shake) * .5, rand(-Game.shake, Game.shake) * .5);
+  // bg
+  const bg = ctx.createLinearGradient(0, 0, 0, Game.H);
+  bg.addColorStop(0, '#070718'); bg.addColorStop(.6, '#0a0a26'); bg.addColorStop(1, '#12082b');
+  ctx.fillStyle = bg; ctx.fillRect(-20, -20, Game.W + 40, Game.H + 40);
+  ctx.fillStyle = '#fff';
+  for (const s of Game.stars) { ctx.globalAlpha = .25 + s.z * .6; ctx.fillRect(s.x, s.y, s.s, s.s); }
+  ctx.globalAlpha = 1;
+  drawGrid();
+  // items, bolts, particles, floats
+  for (const it of Game.items) drawItem(it);
+  ctx.strokeStyle = '#fde68a'; ctx.lineWidth = 3; ctx.lineCap = 'round'; ctx.shadowColor = '#fbbf24'; ctx.shadowBlur = 10;
+  for (const b of Game.bolts) { ctx.beginPath(); ctx.moveTo(b.x - b.vx * .012, b.y - b.vy * .012); ctx.lineTo(b.x, b.y); ctx.stroke(); }
+  ctx.shadowBlur = 0;
+  for (const q of Game.parts) {
+    ctx.globalAlpha = clamp(q.life / q.max, 0, 1);
+    ctx.fillStyle = q.color; ctx.beginPath(); ctx.arc(q.x, q.y, q.r, 0, TAU); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  for (const f of Game.floats) {
+    ctx.globalAlpha = clamp(f.life / f.max, 0, 1);
+    ctx.font = '800 ' + f.size + 'px system-ui, sans-serif';
+    ctx.fillStyle = f.color; ctx.fillText(f.text, f.x, f.y);
+  }
+  ctx.globalAlpha = 1;
+  if (Game.phase === 'playing' || Game.phase === 'victory' || Game.phase === 'paused') drawPlayer();
+  ctx.restore();
+  if (Game.phase === 'paused') {
+    ctx.fillStyle = 'rgba(3,3,12,.55)'; ctx.fillRect(0, 0, Game.W, Game.H);
+  }
+}
+
+/* ---------- main loop ---------- */
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min((now - last) / 1000, .05); last = now;
+  update(dt); draw();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+/* ---------- test hooks (used by the automated smoke test) ---------- */
+window.ONEPROMPT = {
+  Game, start: startGame,
+  state() { return { phase: Game.phase, score: Game.score, lives: Game.lives, build: Game.build, combo: Game.combo, items: Game.items.length, bolts: Game.bolts.length, shards: Game.shards, kills: Game.kills, elapsed: Game.elapsed, level: Game.level }; }
+};
+</script>
+</body>
+</html>
