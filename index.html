@@ -176,14 +176,16 @@ const AudioSys = {
   unlock() { [392, 523, 659, 784, 1046].forEach((f, i) => setTimeout(() => this.tone(f, .22, 'triangle', .13), i * 85)); },
   victory() { [523, 659, 784, 1046, 784, 1046, 1318].forEach((f, i) => setTimeout(() => this.tone(f, .3, 'triangle', .14), i * 120)); },
   gameover() { [392, 330, 262, 196].forEach((f, i) => setTimeout(() => this.tone(f, .32, 'sawtooth', .1), i * 150)); },
+  whoosh() { this.tone(320, .16, 'sine', .07, 940); },
   startMusic() {
     if (this.musicOn || !this.ctx) return; this.musicOn = true;
-    const bass = [110, 110, 130.8, 98], arp = [440, 554, 659, 880, 659, 554];
+    const bass = [110, 110, 130.8, 98, 110, 130.8, 146.8, 98], arp = [440, 554, 659, 880, 659, 554];
     let step = 0;
     this.musicTimer = setInterval(() => {
       if (this.muted || Game.phase !== 'playing') return;
-      this.tone(bass[step % 4], .22, 'triangle', .05);
+      this.tone(bass[step % 8], .22, 'triangle', .05);
       this.tone(arp[step % 6], .12, 'sine', .028);
+      if (step % 2 === 0) this.tone(5200, .03, 'square', .012); // hat tick
       step++;
     }, 170);
   },
@@ -208,7 +210,8 @@ const Game = {
   spawnT: 0, fireT: 0, bannerT: 0, demo: false, endless: false,
   player: { x: 0, y: 0, r: 20, tx: 0, ty: 0, tilt: 0, inv: 0 },
   keys: {}, pointer: { x: 0, y: 0, active: false },
-  items: [], bolts: [], parts: [], floats: [], stars: [],
+  items: [], bolts: [], parts: [], floats: [], stars: [], trail: [], rings: [],
+  flash: 0, comboT: 0, shownLevel: 1, nearMiss: 0, nebula: [],
 };
 const DEMO = new URLSearchParams(location.search).has('demo');
 
@@ -223,6 +226,12 @@ function resize() {
   Game.player.y = Game.player.ty = Game.H * .78;
   if (!Game.stars.length) for (let i = 0; i < 90; i++)
     Game.stars.push({ x: Math.random() * Game.W, y: Math.random() * Game.H, z: rand(.2, 1), s: rand(.6, 2) });
+  if (!Game.nebula.length) Game.nebula = [
+    { x: .22, y: .3, r: .42, color: '124,58,237', drift: .11 },
+    { x: .8, y: .62, r: .38, color: '219,39,119', drift: .07 },
+    { x: .55, y: .12, r: .3, color: '8,145,178', drift: .09 },
+  ];
+  else for (const n of Game.nebula) { n.x = clamp(n.x, 0, 1); n.y = clamp(n.y, 0, 1); }
 }
 window.addEventListener('resize', resize); resize();
 
@@ -236,15 +245,18 @@ function burst(x, y, color, n, speed) {
 }
 function confetti() {
   const colors = ['#22d3ee', '#a78bfa', '#f472b6', '#34d399', '#fbbf24'];
-  for (let i = 0; i < 160; i++)
+  for (let i = 0; i < 260; i++)
     Game.parts.push({ x: rand(0, Game.W), y: rand(-40, -5), vx: rand(-40, 40), vy: rand(60, 220), life: rand(1.2, 2.4), max: 2.4, color: pick(colors), r: rand(2, 5), grav: 60 });
 }
 function floatText(x, y, text, color, size) {
   Game.floats.push({ x, y, text, color: color || '#fff', size: size || 16, life: .9, max: .9 });
 }
-function banner(main, sub) {
+function banner(main, sub, dur) {
   const b = $('banner'); b.innerHTML = main + (sub ? '<small>' + sub + '</small>' : '');
-  b.classList.add('show'); Game.bannerT = 1.6;
+  b.classList.add('show'); Game.bannerT = dur || 1.6;
+}
+function ring(x, y, color, maxR) {
+  Game.rings.push({ x, y, color: color || '#a78bfa', r: 8, max: maxR || 90, life: .5, maxLife: .5 });
 }
 function updateHUD() {
   $('score').textContent = Game.score.toLocaleString('en-US');
@@ -268,18 +280,19 @@ function spawnItem() {
   const t = Game.elapsed, diff = clamp(1 + t / 45, 1, 2.6); // difficulty ramps
   const roll = Math.random();
   let kind;
-  if (roll < .66) kind = 'shard';
-  else if (roll < .90) kind = 'bug';
+  if (roll < .05) kind = 'gold';              // rare golden prompt: +10% build, +100 pts
+  else if (roll < .66) kind = 'shard';
+  else if (roll < .90) kind = (Game.level >= 2 && Math.random() < .3) ? 'zig' : 'bug';
   else kind = pick(['magnet', 'shield', 'slow']);
   const x = rand(30, Game.W - 30);
-  const baseSpeed = (90 + t * 2.2) * diff * rand(.85, 1.2) * (kind === 'shard' ? .82 : 1);
-  const item = { kind, x, y: -30, vy: baseSpeed, vx: rand(-14, 14), r: kind === 'bug' ? 19 : 15,
-    rot: rand(0, TAU), vr: rand(-1.5, 1.5), wob: rand(0, TAU), hp: kind === 'bug' ? (Game.level >= 4 ? 2 : 1) : 1, seed: Math.random() * 100 };
+  const baseSpeed = (90 + t * 2.2) * diff * rand(.85, 1.2) * (kind === 'shard' || kind === 'gold' ? .82 : 1);
+  const item = { kind, x, y: -30, vy: baseSpeed, vx: rand(-14, 14), r: kind === 'gold' ? 18 : (kind === 'bug' || kind === 'zig' ? 19 : 15),
+    rot: rand(0, TAU), vr: rand(-1.5, 1.5), wob: rand(0, TAU), hp: (kind === 'bug' && Game.level >= 3) ? 2 : 1, seed: Math.random() * 100 };
   Game.items.push(item);
 }
 function fireBolt() {
   const p = Game.player;
-  const bugs = Game.items.filter(i => i.kind === 'bug');
+  const bugs = Game.items.filter(i => i.kind === 'bug' || i.kind === 'zig');
   if (!bugs.length) return;
   bugs.sort((a, b) => (a.y - p.y) ** 2 + (a.x - p.x) ** 2 - ((b.y - p.y) ** 2 + (b.x - p.x) ** 2));
   const target = bugs[0], n = Game.build >= 75 ? 2 : 1;
@@ -297,16 +310,22 @@ function checkMilestones(prev) {
     if (prev < s.at && Game.build >= s.at && s.feat) {
       if (s.at === 100) { victory(); return; }
       banner('✦ ' + s.feat + ' UNLOCKED', 'build ' + s.at + '% — ' + s.label);
-      AudioSys.unlock();
+      AudioSys.unlock(); Game.flash = .5;
       burst(Game.player.x, Game.player.y, '#a78bfa', 26, 300);
-      if (s.at === 50) AudioSys.startMusic();
+      ring(Game.player.x, Game.player.y, '#a78bfa', 130);
+      if (s.at === 50) {
+        AudioSys.startMusic();
+        if (Game.lives < 3) { Game.lives++; floatText(Game.player.x, Game.player.y - 70, '+1 LIFE ♥', '#fb7185', 19); }
+      }
+      if (s.at === 75) { for (let i = 0; i < 6; i++) spawnItem(); floatText(Game.W / 2, Game.H * .3, 'DEADLINE RUSH!', '#f472b6', 24); }
     }
   }
 }
 function victory() {
   Game.endless = true; Game.phase = 'victory';
-  AudioSys.victory(); confetti();
-  banner('🎉 GAME BUILT!', '100% — you shipped it from one prompt');
+  AudioSys.victory(); confetti(); Game.flash = .6;
+  banner('🎉 GAME BUILT!', '100% — you shipped it from one prompt', 3.4);
+  ring(Game.player.x, Game.player.y, '#fbbf24', 200);
   setTimeout(() => {
     if (Game.phase === 'victory') { Game.phase = 'playing'; updateHUD(); }
   }, 2600);
@@ -316,7 +335,7 @@ function victory() {
 function damagePlayer() {
   if (Game.player.inv > 0 || Game.phase !== 'playing') return;
   if (Game.shield > 0) { Game.shield = 0; Game.player.inv = 1.2; floatText(Game.player.x, Game.player.y - 40, 'SHIELD SAVED YOU', '#6ee7b7', 17); AudioSys.zap(); return; }
-  Game.lives--; Game.combo = 0; Game.shake = 16; Game.player.inv = 1.6;
+  Game.lives--; Game.combo = 0; Game.comboT = 0; Game.shake = 16; Game.flash = .35; Game.player.inv = 1.6;
   burst(Game.player.x, Game.player.y, '#fb7185', 22, 320);
   AudioSys.hurt(); updateHUD();
   if (Game.lives <= 0) gameOver(false);
@@ -343,6 +362,7 @@ function startGame(demo) {
   Game.shards = 0; Game.kills = 0; Game.shots = 0; Game.hits = 0; Game.elapsed = 0;
   Game.slowmo = 0; Game.magnet = 0; Game.shield = 0; Game.endless = false; Game.shake = 0;
   Game.items = []; Game.bolts = []; Game.parts = []; Game.floats = [];
+  Game.trail = []; Game.rings = []; Game.flash = 0; Game.comboT = 0; Game.shownLevel = 1; Game.nearMiss = 0;
   Game.player.x = Game.player.tx = Game.W / 2; Game.player.y = Game.player.ty = Game.H * .78; Game.player.inv = 0;
   $('startScreen').classList.add('hidden'); $('overScreen').classList.add('hidden'); $('hud').classList.remove('hidden');
   banner('ONE PROMPT', 'collect shards · dodge bugs · ship it');
@@ -366,7 +386,7 @@ window.addEventListener('keydown', e => {
 window.addEventListener('keyup', e => { Game.keys[e.key.toLowerCase()] = false; });
 function setPointer(x, y) { Game.pointer.x = x; Game.pointer.y = y; Game.pointer.active = true; Game.player.tx = x; Game.player.ty = y; }
 canvas.addEventListener('pointerdown', e => setPointer(e.clientX, e.clientY));
-canvas.addEventListener('pointermove', e => { if (e.buttons) setPointer(e.clientX, e.clientY); });
+canvas.addEventListener('pointermove', e => { if (e.buttons || e.pointerType === 'touch') setPointer(e.clientX, e.clientY); });
 $('playBtn').addEventListener('click', () => startGame(false));
 $('againBtn').addEventListener('click', () => startGame(false));
 $('demoBtn').addEventListener('click', () => startGame(true));
@@ -388,7 +408,10 @@ function update(dt) {
   if (Game.magnet > 0) Game.magnet -= dt;
   if (Game.shield > 0) Game.shield -= dt;
   if (Game.slowmo > 0) Game.slowmo -= dt;
+  if (Game.flash > 0) Game.flash = Math.max(0, Game.flash - dt * 1.8);
+  if (Game.comboT > 0) { Game.comboT -= dt; if (Game.comboT <= 0 && Game.combo > 0) { Game.combo = 0; floatText(p.x, p.y - 46, 'COMBO LOST', '#7d93ad', 15); updateHUD(); } }
   Game.level = Math.min(9, 1 + Math.floor(Game.elapsed / 20) + Math.floor(Game.build / 34));
+  if (Game.level > Game.shownLevel) { Game.shownLevel = Game.level; floatText(Game.W / 2, Game.H * .28, 'LEVEL ' + Game.level + ' — FASTER!', '#86efac', 22); }
   // movement: keyboard
   const sp = 460 * dt, k = Game.keys;
   if (k['arrowleft'] || k['a']) p.tx -= sp;
@@ -405,10 +428,15 @@ function update(dt) {
     else p.tx += clamp(Game.W / 2 - p.x, -1, 1) * 200 * dt;
     p.tx = clamp(p.tx, 26, Game.W - 26); p.ty = clamp(p.ty, Game.H * .3, Game.H - 30);
   }
-  // smooth follow + tilt
+  // smooth follow + tilt + motion trail
   const nx = p.x + (p.tx - p.x) * Math.min(1, dt * 14);
   p.tilt = clamp((nx - p.x) * .06, -.5, .5); p.x = nx;
   p.y += (p.ty - p.y) * Math.min(1, dt * 14);
+  Game.trail.push({ x: p.x, y: p.y, life: .32, max: .32 });
+  if (Game.trail.length > 16) Game.trail.shift();
+  for (let i = Game.trail.length - 1; i >= 0; i--) { Game.trail[i].life -= dt; if (Game.trail[i].life <= 0) Game.trail.splice(i, 1); }
+  // shooting star, occasionally
+  if (Math.random() < dt * .25) Game.parts.push({ x: rand(Game.W * .35, Game.W), y: -8, vx: -560, vy: 300, life: .9, max: .9, color: '#fff', r: 2, shoot: true });
   // magnet pull
   const timeScale = Game.slowmo > 0 ? .45 : 1;
   // spawn
@@ -422,24 +450,34 @@ function update(dt) {
   for (let i = Game.items.length - 1; i >= 0; i--) {
     const it = Game.items[i];
     it.y += it.vy * timeScale * dt; it.x += it.vx * timeScale * dt + Math.sin(Game.time * 2 + it.wob) * 12 * dt;
+    if (it.kind === 'zig') it.x += Math.sin(Game.time * 3.4 + it.wob) * 110 * dt;
     it.rot += it.vr * dt;
-    if (Game.magnet > 0 && it.kind === 'shard') {
+    // near-miss: a bug/zig slips past close by — skill bonus
+    if ((it.kind === 'bug' || it.kind === 'zig') && !it.nearCounted && it.y > p.y + 20) {
+      it.nearCounted = true;
+      if (Math.abs(it.x - p.x) < 70) { Game.nearMiss++; Game.score += 15; floatText(p.x, p.y - 46, 'CLOSE! +15', '#f472b6', 16); AudioSys.whoosh(); updateHUD(); }
+    }
+    if (Game.magnet > 0 && (it.kind === 'shard' || it.kind === 'gold')) {
       const dx = p.x - it.x, dy = p.y - it.y, d = Math.hypot(dx, dy) || 1;
       if (d < 260) { it.x += dx / d * 340 * dt; it.y += dy / d * 340 * dt; }
     }
     if (it.y > Game.H + 40 || it.x < -50 || it.x > Game.W + 50) { Game.items.splice(i, 1); continue; }
     const d = Math.hypot(it.x - p.x, it.y - p.y);
     if (d < it.r + p.r - 4) {
-      if (it.kind === 'shard') {
+      if (it.kind === 'shard' || it.kind === 'gold') {
+        const gold = it.kind === 'gold';
         Game.shards++; Game.combo++; Game.bestCombo = Math.max(Game.bestCombo, Game.combo);
-        const mult = Math.min(Game.combo, 8), gain = 10 * mult;
+        Game.comboT = 5; // combo lasts 5s without a pickup
+        const mult = Math.min(Game.combo, 8), gain = gold ? 100 : 10 * mult;
         const prev = Game.build;
-        Game.score += gain; Game.build = Math.min(100, Game.build + 5);
-        floatText(it.x, it.y - 14, '+' + gain, '#67e8f9', 15 + Math.min(mult, 6));
+        Game.score += gain; Game.build = Math.min(100, Game.build + (gold ? 10 : 5));
+        floatText(it.x, it.y - 14, gold ? '★ GOLD +' + gain : '+' + gain, gold ? '#fbbf24' : '#67e8f9', gold ? 21 : 15 + Math.min(mult, 6));
         if (Game.combo >= 3 && Game.combo % 5 === 0) floatText(p.x, p.y - 46, 'COMBO ×' + Game.combo, '#fbbf24', 19);
-        burst(it.x, it.y, '#22d3ee', 8, 200); AudioSys.pickup(Game.combo);
+        burst(it.x, it.y, gold ? '#fbbf24' : '#22d3ee', gold ? 16 : 8, gold ? 300 : 200);
+        if (gold) ring(it.x, it.y, '#fbbf24', 80);
+        AudioSys.pickup(Game.combo);
         Game.items.splice(i, 1); checkMilestones(prev); updateHUD();
-      } else if (it.kind === 'bug') {
+      } else if (it.kind === 'bug' || it.kind === 'zig') {
         Game.items.splice(i, 1); damagePlayer();
       } else {
         Game.items.splice(i, 1); AudioSys.power();
@@ -457,15 +495,20 @@ function update(dt) {
     let dead = b.life <= 0 || b.y < -20 || b.y > Game.H + 20 || b.x < -20 || b.x > Game.W + 20;
     if (!dead) for (let j = Game.items.length - 1; j >= 0; j--) {
       const it = Game.items[j];
-      if (it.kind !== 'bug') continue;
+    if (it.kind !== 'bug' && it.kind !== 'zig') continue;
       if (Math.hypot(it.x - b.x, it.y - b.y) < it.r + 6) {
         Game.hits++; it.hp--;
         burst(b.x, b.y, '#fbbf24', 6, 180);
-        if (it.hp <= 0) { Game.kills++; Game.score += 25; floatText(it.x, it.y, '+25', '#fbbf24', 15); burst(it.x, it.y, '#fb7185', 16, 280); AudioSys.zap(); Game.items.splice(j, 1); updateHUD(); }
+        if (it.hp <= 0) { Game.kills++; Game.score += 25; floatText(it.x, it.y, '+25', '#fbbf24', 15); burst(it.x, it.y, '#fb7185', 16, 280); ring(it.x, it.y, '#fb7185', 70); AudioSys.zap(); Game.items.splice(j, 1); updateHUD(); }
         dead = true; break;
       }
     }
     if (dead) Game.bolts.splice(i, 1);
+  }
+  // rings
+  for (let i = Game.rings.length - 1; i >= 0; i--) {
+    const r = Game.rings[i]; r.r += 300 * dt; r.life -= dt;
+    if (r.life <= 0 || r.r >= r.max) Game.rings.splice(i, 1);
   }
   // particles
   for (let i = Game.parts.length - 1; i >= 0; i--) {
@@ -498,6 +541,12 @@ function drawGrid() {
 }
 function drawPlayer() {
   const p = Game.player;
+  // motion trail
+  for (const t of Game.trail) {
+    ctx.globalAlpha = (t.life / t.max) * .22;
+    ctx.fillStyle = '#22d3ee'; ctx.beginPath(); ctx.arc(t.x, t.y, 13, 0, TAU); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
   ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.tilt);
   if (p.inv > 0 && Math.floor(Game.time * 14) % 2 === 0) ctx.globalAlpha = .35;
   // glow + shield ring
@@ -530,20 +579,24 @@ function roundRect(x, y, w, h, r) {
 }
 function drawItem(it) {
   ctx.save(); ctx.translate(it.x, it.y); ctx.rotate(it.rot);
-  if (it.kind === 'shard') {
-    ctx.shadowColor = '#22d3ee'; ctx.shadowBlur = 16;
-    ctx.fillStyle = '#164e63'; ctx.strokeStyle = '#22d3ee'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(0, -15); ctx.lineTo(13, 0); ctx.lineTo(0, 15); ctx.lineTo(-13, 0); ctx.closePath(); ctx.fill(); ctx.stroke();
-    ctx.shadowBlur = 0; ctx.fillStyle = '#a5f3fc'; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('</>', 0, 1);
-  } else if (it.kind === 'bug') {
+  if (it.kind === 'shard' || it.kind === 'gold') {
+    const gold = it.kind === 'gold';
+    ctx.shadowColor = gold ? '#fbbf24' : '#22d3ee'; ctx.shadowBlur = gold ? 26 : 16;
+    ctx.fillStyle = gold ? '#451a03' : '#164e63'; ctx.strokeStyle = gold ? '#fbbf24' : '#22d3ee'; ctx.lineWidth = 2;
+    const R = gold ? 18 : 15;
+    ctx.beginPath(); ctx.moveTo(0, -R); ctx.lineTo(R * .86, 0); ctx.lineTo(0, R); ctx.lineTo(-R * .86, 0); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.shadowBlur = 0; ctx.fillStyle = gold ? '#fde68a' : '#a5f3fc'; ctx.font = gold ? 'bold 15px sans-serif' : 'bold 11px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(gold ? '★' : '</>', 0, 1);
+  } else if (it.kind === 'bug' || it.kind === 'zig') {
+    const zig = it.kind === 'zig';
     const blink = Math.floor(Game.time * 6 + it.seed) % 2 === 0;
-    ctx.shadowColor = '#fb7185'; ctx.shadowBlur = 16;
-    ctx.fillStyle = blink ? '#7f1d2e' : '#9f1239'; ctx.strokeStyle = '#fb7185'; ctx.lineWidth = 2;
+    ctx.shadowColor = zig ? '#e879f9' : '#fb7185'; ctx.shadowBlur = 16;
+    ctx.fillStyle = zig ? '#701a75' : (blink ? '#7f1d2e' : '#9f1239'); ctx.strokeStyle = zig ? '#e879f9' : '#fb7185'; ctx.lineWidth = 2;
     roundRect(-16, -16, 32, 32, 6); ctx.fill(); ctx.stroke();
-    ctx.shadowBlur = 0; ctx.strokeStyle = '#fecdd3'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+    ctx.shadowBlur = 0; ctx.strokeStyle = zig ? '#fae8ff' : '#fecdd3'; ctx.lineWidth = 3; ctx.lineCap = 'round';
     ctx.beginPath(); ctx.moveTo(-8, -8); ctx.lineTo(8, 8); ctx.moveTo(8, -8); ctx.lineTo(-8, 8); ctx.stroke();
     if (it.hp >= 2) { ctx.fillStyle = '#fecdd3'; ctx.font = 'bold 10px monospace'; ctx.textAlign = 'center'; ctx.fillText('×2', 0, -22); }
+    if (zig) { ctx.fillStyle = '#fae8ff'; ctx.font = 'bold 10px monospace'; ctx.textAlign = 'center'; ctx.fillText('~', 0, -22); }
   } else {
     const colors = { magnet: '#34d399', shield: '#6ee7b7', slow: '#c4b5fd' };
     const glyph = { magnet: '🧲', shield: '🛡', slow: '⏱' };
@@ -563,10 +616,27 @@ function draw() {
   const bg = ctx.createLinearGradient(0, 0, 0, Game.H);
   bg.addColorStop(0, '#070718'); bg.addColorStop(.6, '#0a0a26'); bg.addColorStop(1, '#12082b');
   ctx.fillStyle = bg; ctx.fillRect(-20, -20, Game.W + 40, Game.H + 40);
+  // drifting nebula blobs
+  for (const n of Game.nebula) {
+    const nx = (n.x + Math.sin(Game.time * n.drift) * .03) * Game.W, ny = (n.y + Math.cos(Game.time * n.drift * .8) * .02) * Game.H;
+    const ng = ctx.createRadialGradient(nx, ny, 10, nx, ny, n.r * Math.max(Game.W, Game.H));
+    ng.addColorStop(0, 'rgba(' + n.color + ',.20)'); ng.addColorStop(1, 'rgba(' + n.color + ',0)');
+    ctx.fillStyle = ng; ctx.fillRect(0, 0, Game.W, Game.H);
+  }
   ctx.fillStyle = '#fff';
   for (const s of Game.stars) { ctx.globalAlpha = .25 + s.z * .6; ctx.fillRect(s.x, s.y, s.s, s.s); }
   ctx.globalAlpha = 1;
   drawGrid();
+  // speed lines at high level
+  if (Game.level >= 4 && (Game.phase === 'playing' || Game.phase === 'victory')) {
+    ctx.strokeStyle = 'rgba(255,255,255,.07)'; ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let i = 0; i < 9; i++) {
+      const x = (i * 173 + Game.time * 300) % (Game.W + 60) - 30, y = (i * 211 + Game.time * 900) % (Game.H + 120) - 60;
+      ctx.moveTo(x, y); ctx.lineTo(x - 14, y + 90);
+    }
+    ctx.stroke();
+  }
   // items, bolts, particles, floats
   for (const it of Game.items) drawItem(it);
   ctx.strokeStyle = '#fde68a'; ctx.lineWidth = 3; ctx.lineCap = 'round'; ctx.shadowColor = '#fbbf24'; ctx.shadowBlur = 10;
@@ -574,18 +644,32 @@ function draw() {
   ctx.shadowBlur = 0;
   for (const q of Game.parts) {
     ctx.globalAlpha = clamp(q.life / q.max, 0, 1);
-    ctx.fillStyle = q.color; ctx.beginPath(); ctx.arc(q.x, q.y, q.r, 0, TAU); ctx.fill();
+    if (q.shoot) {
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(q.x, q.y); ctx.lineTo(q.x + 42, q.y - 22); ctx.stroke();
+    } else {
+      ctx.fillStyle = q.color; ctx.beginPath(); ctx.arc(q.x, q.y, q.r, 0, TAU); ctx.fill();
+    }
+  }
+  ctx.globalAlpha = 1;
+  // shockwave rings
+  for (const r of Game.rings) {
+    ctx.globalAlpha = clamp(r.life / r.maxLife, 0, 1) * .8;
+    ctx.strokeStyle = r.color; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(r.x, r.y, r.r, 0, TAU); ctx.stroke();
   }
   ctx.globalAlpha = 1;
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   for (const f of Game.floats) {
     ctx.globalAlpha = clamp(f.life / f.max, 0, 1);
-    ctx.font = '800 ' + f.size + 'px system-ui, sans-serif';
+    const pop = 1 + .45 * (f.life / f.max);
+    ctx.font = '800 ' + Math.round(f.size * pop) + 'px system-ui, sans-serif';
     ctx.fillStyle = f.color; ctx.fillText(f.text, f.x, f.y);
   }
   ctx.globalAlpha = 1;
   if (Game.phase === 'playing' || Game.phase === 'victory' || Game.phase === 'paused') drawPlayer();
   ctx.restore();
+  if (Game.flash > 0) { ctx.fillStyle = 'rgba(167,139,250,' + (Game.flash * .28).toFixed(3) + ')'; ctx.fillRect(0, 0, Game.W, Game.H); }
   if (Game.phase === 'paused') {
     ctx.fillStyle = 'rgba(3,3,12,.55)'; ctx.fillRect(0, 0, Game.W, Game.H);
   }
@@ -603,7 +687,7 @@ requestAnimationFrame(loop);
 /* ---------- test hooks (used by the automated smoke test) ---------- */
 window.ONEPROMPT = {
   Game, start: startGame,
-  state() { return { phase: Game.phase, score: Game.score, lives: Game.lives, build: Game.build, combo: Game.combo, items: Game.items.length, bolts: Game.bolts.length, shards: Game.shards, kills: Game.kills, elapsed: Game.elapsed, level: Game.level }; }
+  state() { return { phase: Game.phase, score: Game.score, lives: Game.lives, build: Game.build, combo: Game.combo, items: Game.items.length, bolts: Game.bolts.length, shards: Game.shards, kills: Game.kills, elapsed: Game.elapsed, level: Game.level, nearMiss: Game.nearMiss, rings: Game.rings.length, trail: Game.trail.length }; }
 };
 </script>
 </body>

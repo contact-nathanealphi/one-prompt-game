@@ -23,8 +23,9 @@ npx serve .
 - **Move:** mouse / touch drag, or `WASD` / arrow keys
 - **Fire:** automatic — your agent auto-blasts the nearest bug
 - **Goal:** collect prompt shards (`</>`) to fill the build bar to 100%
-- **Danger:** red bugs cost a life on touch (3 lives); power-ups drop rarely — magnet 🧲, shield 🛡, slow-mo ⏱
-- **Combo:** consecutive shards multiply points up to ×8
+- **Danger:** red bugs cost a life on touch (3 lives); magenta zigzag bugs weave sideways, armored bugs take 2 hits; power-ups drop rarely — magnet 🧲, shield 🛡, slow-mo ⏱
+- **Combo:** consecutive shards multiply points up to ×8 — but the combo dies after 5s without a shard
+- **Bonus:** golden prompt shards ★ (+10% build, +100 pts); near-miss a bug for +15 "CLOSE!"
 - **Pause:** `P` · **Mute:** `M` · **Demo:** `?demo=1` in the URL (or the "watch the autopilot demo" button) lets the autopilot play itself — handy for the gameplay video
 
 ## Files

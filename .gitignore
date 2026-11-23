@@ -4,4 +4,7 @@ package.json
 package-lock.json
 test-game.mjs
 test-demo.mjs
+test-over-mobile.mjs
 record-video.mjs
+UPGRADE-LOG.md
+POST-DRAFT.md
