@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>ONE PROMPT — the agent builds a game</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23070718'/%3E%3Ctext x='16' y='22' font-size='17' text-anchor='middle' fill='%2322d3ee' font-family='monospace' font-weight='bold'%3E/%3C/text%3E%3C/svg%3E">
+<meta property="og:title" content="ONE PROMPT — the agent builds a game">
+<meta property="og:description" content="One prompt. One agent. One game. Catch the prompt shards, dodge the bugs, and ship it to 100%. Built by an AI agent from a single prompt.">
 <meta name="description" content="One prompt. One agent. One game. Collect the prompt shards, dodge the bugs, and ship it before the deadline. Built by an AI agent from a single prompt for make.fun.">
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
@@ -348,10 +351,11 @@ function damagePlayer() {
 }
 function gameOver(won) {
   Game.phase = 'over'; AudioSys.stopMusic(); AudioSys.gameover();
+  const isBest = Game.score > Game.best && Game.score > 0;
   const best = Math.max(Game.best, Game.score);
-  if (Game.score > Game.best) { Game.best = Game.score; localStorage.setItem('one-prompt-best', Game.best); }
-  $('overTitle').textContent = won ? 'SHIPPED! 🚀' : 'GAME OVER';
-  $('overSub').textContent = won ? 'the game is built — 100% from one prompt' : (Game.build >= 90 ? 'so close — the build was ' + Math.floor(Game.build) + '%' : 'the build crashed');
+  if (isBest) { Game.best = Game.score; localStorage.setItem('one-prompt-best', Game.best); }
+  $('overTitle').textContent = won ? 'SHIPPED! 🚀' : (isBest ? 'NEW BEST! 🏆' : 'GAME OVER');
+  $('overSub').textContent = isBest ? 'new best score — the build lives on' : (won ? 'the game is built — 100% from one prompt' : (Game.build >= 90 ? 'so close — the build was ' + Math.floor(Game.build) + '%' : 'the build crashed'));
   $('finalScore').textContent = Game.score.toLocaleString('en-US');
   $('finalShards').textContent = Game.shards;
   $('finalKills').textContent = Game.kills;
